@@ -42,13 +42,7 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 	displayEntry := widget.NewEntry()
 	displayEntry.SetPlaceHolder("0")
 
-	limparNoProximoInput := false
-
 	inserirTexto := func(s string) {
-		if limparNoProximoInput {
-			displayEntry.SetText("")
-			limparNoProximoInput = false
-		}
 		displayEntry.SetText(displayEntry.Text + s)
 	}
 
@@ -56,16 +50,10 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 	limparTudo := func() {
 		historicoLabel.SetText("")
 		displayEntry.SetText("")
-		limparNoProximoInput = false
 	}
 
 	// Remove o último caractere digitado (botão DEL / Backspace)
 	apagarUltimo := func() {
-		if limparNoProximoInput {
-			displayEntry.SetText("")
-			limparNoProximoInput = false
-			return
-		}
 		texto := displayEntry.Text
 		if len(texto) > 0 {
 			displayEntry.SetText(texto[:len(texto)-1])
@@ -82,27 +70,23 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 		exprHigienizada, err := parser.Higienizar(expressao)
 		if err != nil {
 			historicoLabel.SetText("Erro: expressao invalida")
-			limparNoProximoInput = true
 			return
 		}
 
 		tokens, err := parser.Tokenizar(exprHigienizada)
 		if err != nil {
 			historicoLabel.SetText(err.Error())
-			limparNoProximoInput = true
 			return
 		}
 
 		resultado, err := calc.AvaliarRPN(tokens, ops)
 		if err != nil {
 			historicoLabel.SetText(err.Error())
-			limparNoProximoInput = true
 			return
 		}
 
 		historicoLabel.SetText(expressao + " =")
 		displayEntry.SetText(fmt.Sprintf("%g", resultado))
-		limparNoProximoInput = true
 	}
 
 	// Dispara o cálculo ao pressionar Enter no teclado físico

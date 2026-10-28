@@ -73,11 +73,22 @@ func Tokenizar(expressaoHigienizada string) ([]string, error) {
 	var operadores []string
 
 	// Itera sobre os tokens aplicando as regras do algoritmo Shunting-yard.
-	for _, token := range tokens {
+	for i, token := range tokens {
 		// Se o token for um número, insere direto na fila de saída.
 		if _, erro := strconv.ParseFloat(token, 64); erro == nil {
 			output = append(output, token)
 			continue
+		}
+
+		// Identifica se o operador é unário no início da expressão, após outro operador ou após '('
+		ehUnario := i == 0 || tokens[i-1] == "(" || strings.ContainsAny(tokens[i-1], "+-*/")
+		if ehUnario {
+			if token == "-" {
+				token = "u-"
+			} else if token == "+" {
+				// Unário positivo é neutro, descarta e avança
+				continue
+			}
 		}
 
 		// Tratando delimitadores e operadores de acordo com a precedência matemática.
@@ -103,7 +114,7 @@ func Tokenizar(expressaoHigienizada string) ([]string, error) {
 			if !encontrouPar {
 				return nil, fmt.Errorf("Parênteses desbalanceados na expressão")
 			}
-		case "+", "-", "*", "/":
+		case "u-", "+", "-", "*", "/":
 			// Desempilha operadores do topo com precedência maior ou igual antes de empilhar o operador atual.
 			for len(operadores) > 0 && operadores[len(operadores)-1] != "(" && Precedencia(operadores[len(operadores)-1]) >= Precedencia(token) {
 				topo := operadores[len(operadores)-1]
@@ -135,13 +146,16 @@ func Tokenizar(expressaoHigienizada string) ([]string, error) {
 // Precedencia retorna a prioridade hierárquica de um operador aritmético.
 //
 // # Entradas
-//   - simbolo: string representando o operador ("*", "/", "+", "-").
+//   - simbolo: string representando o operador ("u-", "*", "/", "+", "-").
 //
 // # Retorno
-//   - int: valor 2 para multiplicação e divisão; valor 1 para adição e subtração; 0 para outros símbolos.
+//   - int: valor 3 para inversão unária; 2 para multiplicação e divisão; 1 para adição e subtração; 0 para outros símbolos.
 func Precedencia(simbolo string) int {
 	// Define o nível de prioridade das operações aritméticas básicas.
 	switch simbolo {
+	case "u-":
+		// Operador unário de inversão possui a maior precedência.
+		return 3
 	case "*", "/":
 		// Multiplicação e divisão possuem maior precedência.
 		return 2

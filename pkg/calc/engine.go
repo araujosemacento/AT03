@@ -34,6 +34,20 @@ func AvaliarRPN(tokens []string, ops Operacoes) (float64, error) {
 			continue
 		}
 
+		// Se for operador unário de inversão (u-), atua sobre apenas um operando do topo
+		if token == "u-" {
+			if len(pilha) < 1 {
+				return 0, fmt.Errorf("expressão malformada: operando insuficiente para operador unário")
+			}
+			topo := len(pilha) - 1
+			resultado, err := ops.Subtrair(0, pilha[topo])
+			if err != nil {
+				return 0, err
+			}
+			pilha[topo] = resultado
+			continue
+		}
+
 		// Se não houverem numerais o suficiente aguardando uma operação,
 		// significa que a expressão foi enviada de forma incompleta.
 		if len(pilha) < 2 {
