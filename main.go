@@ -19,6 +19,8 @@ func main() {
 	var expressao string
 	var tokens []string
 
+	gui()
+
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
@@ -45,11 +47,16 @@ func main() {
 			continue
 		}
 
+		resultado, erro := calcular(tokens)
+		if erro != nil {
+			fmt.Printf("\n%s\nInsira uma expressão matemática válida.\n\n", erro)
+			continue
+		}
+
+		fmt.Printf("\nResultado: %g\n\n", resultado)
 		break
 
 	}
-
-	fmt.Println(tokens)
 
 }
 
@@ -151,4 +158,50 @@ func precedencia(simbolo string) int {
 	}
 }
 
-// func calcular() {}
+func calcular(tokens []string) (float64, error) {
+	if len(tokens) == 0 {
+		return 0, fmt.Errorf("expressão vazia")
+	}
+
+	var pilha []float64
+
+	for _, token := range tokens {
+		if num, erro := strconv.ParseFloat(token, 64); erro == nil {
+			pilha = append(pilha, num)
+			continue
+		}
+
+		if len(pilha) < 2 {
+			return 0, fmt.Errorf("expressão malformada: operandos insuficientes para o operador %s", token)
+		}
+
+		valorDois := pilha[len(pilha)-1]
+		valorUm := pilha[len(pilha)-2]
+		pilha = pilha[:len(pilha)-2]
+
+		var resultado float64
+		switch token {
+		case "+":
+			resultado = somar(valorUm, valorDois)
+		case "-":
+			resultado = subtrair(valorUm, valorDois)
+		case "*":
+			resultado = multiplicar(valorUm, valorDois)
+		case "/":
+			if valorDois == 0 {
+				return 0, fmt.Errorf("divisão por zero")
+			}
+			resultado = dividir(valorUm, valorDois)
+		default:
+			return 0, fmt.Errorf("operador desconhecido: %s", token)
+		}
+
+		pilha = append(pilha, resultado)
+	}
+
+	if len(pilha) != 1 {
+		return 0, fmt.Errorf("expressão malformada: quantidade incorreta de operandos")
+	}
+
+	return pilha[0], nil
+}
