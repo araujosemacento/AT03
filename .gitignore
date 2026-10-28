@@ -19,3 +19,23 @@
 
 # Go workspace file
 go.work
+go.work.sum
+
+# Pastas de saída de compilação
+build/
+fyne-cross/
+
+# Cache e artefatos temporários gerados por containers/builds (fyne-cross, zig, go)
+.cache/
+.config/
+Icon.png
+
+# IDEs e editores
+.idea/
+.vscode/
+*.swp
+*~
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
