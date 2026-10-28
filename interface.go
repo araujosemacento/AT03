@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
@@ -9,77 +12,116 @@ import (
 
 func gui() {
 	aplicacao := app.New()
-	janela := aplicacao.NewWindow("Calculadora Distribuida")
+	janela := aplicacao.NewWindow("Calculadora")
 	janela.Resize(fyne.NewSize(320, 420))
 
-	display := widget.NewEntry()
-	display.SetPlaceHolder("0")
+	historicoLabel := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{})
+	displayEntry := widget.NewEntry()
+	displayEntry.SetPlaceHolder("0")
 
-	adicionarCaractere := func(c string) {
-		display.SetText(display.Text + c)
+	limparNoProximoInput := false
+
+	inserirTexto := func(s string) {
+		if limparNoProximoInput {
+			displayEntry.SetText("")
+			limparNoProximoInput = false
+		}
+		displayEntry.SetText(displayEntry.Text + s)
 	}
 
-	limparDisplay := func() {
-		display.SetText("")
+	limparTudo := func() {
+		historicoLabel.SetText("")
+		displayEntry.SetText("")
+		limparNoProximoInput = false
 	}
 
 	apagarUltimo := func() {
-		texto := display.Text
+		if limparNoProximoInput {
+			displayEntry.SetText("")
+			limparNoProximoInput = false
+			return
+		}
+		texto := displayEntry.Text
 		if len(texto) > 0 {
-			display.SetText(texto[:len(texto)-1])
+			displayEntry.SetText(texto[:len(texto)-1])
 		}
 	}
 
-	calcular := func() {
-		if display.Text == "" {
+	executarCalculo := func() {
+		expressao := strings.TrimSpace(displayEntry.Text)
+		if expressao == "" {
 			return
 		}
-		exprHigienizada, err := higienizar(display.Text)
+
+		exprHigienizada, err := higienizar(expressao)
 		if err != nil {
-			display.SetText("Erro: expressao invalida")
+			historicoLabel.SetText("Erro: expressao invalida")
+			limparNoProximoInput = true
 			return
 		}
+
 		tokens, err := tokenizar(exprHigienizada)
 		if err != nil {
-			display.SetText("Erro: tokenizacao invalida")
+			historicoLabel.SetText(err.Error())
+			limparNoProximoInput = true
 			return
 		}
-		_ = tokens
+
+		resultado, err := calcular(tokens)
+		if err != nil {
+			historicoLabel.SetText(err.Error())
+			limparNoProximoInput = true
+			return
+		}
+
+		historicoLabel.SetText(expressao + " =")
+		displayEntry.SetText(fmt.Sprintf("%g", resultado))
+		limparNoProximoInput = true
+	}
+
+	displayEntry.OnSubmitted = func(_ string) {
+		executarCalculo()
 	}
 
 	teclado := container.NewGridWithColumns(4,
-		widget.NewButton("C", limparDisplay),
-		widget.NewButton("(", func() { adicionarCaractere("(") }),
-		widget.NewButton(")", func() { adicionarCaractere(")") }),
-		widget.NewButton("/", func() { adicionarCaractere("/") }),
+		widget.NewButton("C", limparTudo),
+		widget.NewButton("(", func() { inserirTexto("(") }),
+		widget.NewButton(")", func() { inserirTexto(")") }),
+		widget.NewButton("+", func() { inserirTexto("+") }),
 
-		widget.NewButton("7", func() { adicionarCaractere("7") }),
-		widget.NewButton("8", func() { adicionarCaractere("8") }),
-		widget.NewButton("9", func() { adicionarCaractere("9") }),
-		widget.NewButton("*", func() { adicionarCaractere("*") }),
+		widget.NewButton("7", func() { inserirTexto("7") }),
+		widget.NewButton("8", func() { inserirTexto("8") }),
+		widget.NewButton("9", func() { inserirTexto("9") }),
+		widget.NewButton("-", func() { inserirTexto("-") }),
 
-		widget.NewButton("4", func() { adicionarCaractere("4") }),
-		widget.NewButton("5", func() { adicionarCaractere("5") }),
-		widget.NewButton("6", func() { adicionarCaractere("6") }),
-		widget.NewButton("-", func() { adicionarCaractere("-") }),
+		widget.NewButton("4", func() { inserirTexto("4") }),
+		widget.NewButton("5", func() { inserirTexto("5") }),
+		widget.NewButton("6", func() { inserirTexto("6") }),
+		widget.NewButton("*", func() { inserirTexto("*") }),
 
-		widget.NewButton("1", func() { adicionarCaractere("1") }),
-		widget.NewButton("2", func() { adicionarCaractere("2") }),
-		widget.NewButton("3", func() { adicionarCaractere("3") }),
-		widget.NewButton("+", func() { adicionarCaractere("+") }),
+		widget.NewButton("1", func() { inserirTexto("1") }),
+		widget.NewButton("2", func() { inserirTexto("2") }),
+		widget.NewButton("3", func() { inserirTexto("3") }),
+		widget.NewButton("/", func() { inserirTexto("/") }),
 
-		widget.NewButton("0", func() { adicionarCaractere("0") }),
-		widget.NewButton(".", func() { adicionarCaractere(".") }),
 		widget.NewButton("DEL", apagarUltimo),
-		widget.NewButton("=", calcular),
+		widget.NewButton("0", func() { inserirTexto("0") }),
+		widget.NewButton(".", func() { inserirTexto(".") }),
+		widget.NewButton("=", executarCalculo),
+	)
+
+	displayContainer := container.NewVBox(
+		historicoLabel,
+		displayEntry,
 	)
 
 	conteudo := container.NewBorder(
-		container.NewVBox(display),
+		container.NewPadded(displayContainer),
 		nil, nil, nil,
 		teclado,
 	)
 
 	janela.SetContent(conteudo)
+	janela.Canvas().Focus(displayEntry)
 	janela.ShowAndRun()
 }
