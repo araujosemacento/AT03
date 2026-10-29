@@ -1,13 +1,11 @@
-// Servidor Socket TCP para a calculadora.
-//
-// Este binário implementa o servidor remoto que escuta conexões TCP na porta :6001,
-// processa requisições de operações aritméticas básicas enviadas pelos clientes
-// de forma concorrente e devolve as respostas formatadas em linha de texto.
+// Servidor Socket TCP da calculadora.
+// Fica escutando na porta :6001, recebe as operações enviadas pelos clientes e devolve os resultados.
 package main
 
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -16,67 +14,53 @@ import (
 )
 
 func main() {
-	// Define a porta TCP padrão para escutar conexões de clientes
 	endereco := ":6001"
 
-	// Cria o listener TCP no endereço especificado com a biblioteca net nativa
+	// Abre o socket TCP para esperar conexões na porta definida
 	listener, err := net.Listen("tcp", endereco)
 	if err != nil {
-		fmt.Printf("Erro ao iniciar o servidor socket: %v\n", err)
-		return
+		log.Fatalf("[SOCKET] Erro ao iniciar o servidor na porta %s: %v", endereco, err)
 	}
 	defer listener.Close()
 
-	fmt.Printf("Servidor Socket TCP da Calculadora ativo na porta %s\n", endereco)
+	log.Printf("[SOCKET] Servidor rodando e esperando conexões na porta %s", endereco)
 
-	// Instancia o executor de operações aritméticas do servidor
 	ops := calc.ServerOperations{}
 
-	// Laço contínuo para aceitar novas conexões de clientes
+	// Fica em loop aceitando novos clientes que se conectarem
 	for {
-		// Bloqueia a execução até que um novo cliente solicite conexão
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Printf("Erro ao aceitar conexão: %v\n", err)
+			log.Printf("[SOCKET] Erro ao aceitar conexão: %v", err)
 			continue
 		}
 
-		// Inicializa uma goroutine concorrente para atender o cliente de forma isolada
+		// Atende cada cliente ao mesmo tempo numa goroutine nova pra cada um
 		go tratarCliente(conn, ops)
 	}
 }
 
-// tratarCliente gerencia a comunicação bidirecional com um cliente conectado via socket TCP.
-//
-// # Entradas
-//   - conn: conexão de rede [net.Conn] estabelecida com o cliente.
-//   - ops: provedor de cálculo [calc.Operacoes] utilizado para executar as operações.
-//
-// # Protocolo de Mensagens
-//   - Requisição do cliente: "OP VAL1 VAL2\n" (exemplo: "+ 10 20\n")
-//   - Resposta com sucesso: "OK <resultado>\n" (exemplo: "OK 30\n")
-//   - Resposta com falha: "ERRO: <mensagem>\n" (exemplo: "ERRO: divisão por zero\n")
+// tratarCliente lê as linhas no formato 'OP VAL1 VAL2\n', faz a conta e responde pelo socket.
 func tratarCliente(conn net.Conn, ops calc.Operacoes) {
-	// Garante o fechamento do socket ao encerrar o atendimento do cliente
 	defer conn.Close()
 
-	fmt.Printf("Cliente conectado: %s\n", conn.RemoteAddr().String())
+	clienteRemoto := conn.RemoteAddr().String()
+	log.Printf("[SOCKET] Cliente conectado: %s", clienteRemoto)
 
-	// Inicializa o leitor com buffer para receber linhas da conexão
 	scanner := bufio.NewScanner(conn)
-	// Inicializa o escritor com buffer para enviar respostas pela conexão
 	writer := bufio.NewWriter(conn)
 
-	// Lê linha por linha transmitida pelo cliente via TCP
+	// Lê cada linha que chega do cliente enquanto a conexão estiver aberta
 	for scanner.Scan() {
 		linha := strings.TrimSpace(scanner.Text())
 		if linha == "" {
 			continue
 		}
 
-		// Divide a mensagem em operador e dois operandos
+		// Quebra a linha em 3 partes: operador, primeiro valor e segundo valor
 		partes := strings.Fields(linha)
 		if len(partes) != 3 {
+			log.Printf("[SOCKET] [%s] Mensagem fora do formato esperado: %s", clienteRemoto, linha)
 			writer.WriteString("ERRO: formato esperado 'OP VAL1 VAL2'\n")
 			writer.Flush()
 			continue
@@ -87,7 +71,8 @@ func tratarCliente(conn net.Conn, ops calc.Operacoes) {
 		b, errB := strconv.ParseFloat(partes[2], 64)
 
 		if errA != nil || errB != nil {
-			writer.WriteString("ERRO: operandos numéricos inválidos\n")
+			log.Printf("[SOCKET] [%s] Valores inválidos recebidos: %s", clienteRemoto, linha)
+			writer.WriteString("ERRO: valores numéricos inválidos\n")
 			writer.Flush()
 			continue
 		}
@@ -95,7 +80,8 @@ func tratarCliente(conn net.Conn, ops calc.Operacoes) {
 		var resultado float64
 		var opErr error
 
-		// Executa a operação aritmética solicitada
+		log.Printf("[SOCKET] [%s] Operação pedida: %g %s %g", clienteRemoto, a, operador, b)
+
 		switch operador {
 		case "+":
 			resultado, opErr = ops.Somar(a, b)
@@ -109,20 +95,21 @@ func tratarCliente(conn net.Conn, ops calc.Operacoes) {
 			opErr = fmt.Errorf("operador desconhecido: %s", operador)
 		}
 
-		// Formata e envia a resposta correspondente pelo socket
+		// Escreve o resultado ou o erro de volta para o cliente
 		if opErr != nil {
+			log.Printf("[SOCKET] [%s] Erro na operação: %v", clienteRemoto, opErr)
 			writer.WriteString(fmt.Sprintf("ERRO: %s\n", opErr.Error()))
 		} else {
+			log.Printf("[SOCKET] [%s] Resultado enviado: %g %s %g = %g", clienteRemoto, a, operador, b, resultado)
 			writer.WriteString(fmt.Sprintf("OK %g\n", resultado))
 		}
-		// Descarrega o buffer para assegurar a transmissão imediata dos bytes pela rede
+		// Envia os dados do buffer para a rede na hora
 		writer.Flush()
 	}
 
-	// Verifica se a saída do laço ocorreu por falha de leitura ou erro de rede
 	if err := scanner.Err(); err != nil {
-		fmt.Printf("Erro na leitura do socket (%s): %v\n", conn.RemoteAddr().String(), err)
+		log.Printf("[SOCKET] [%s] Erro ao ler dados do socket: %v", clienteRemoto, err)
 	}
 
-	fmt.Printf("Conexão encerrada: %s\n", conn.RemoteAddr().String())
+	log.Printf("[SOCKET] Conexão fechada com %s", clienteRemoto)
 }

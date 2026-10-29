@@ -1,8 +1,8 @@
-// Package ui disponibiliza componentes gráficos para a calculadora.
+// Pacote ui monta a janela e os botões da interface gráfica da calculadora.
 package ui
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"at03/calculadora/pkg/calc"
@@ -14,31 +14,17 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// IniciarGUI inicializa e exibe a interface gráfica da calculadora conectada ao provedor de operações.
-//
-// O objetivo dessa função é instanciar a janela usando a biblioteca Fyne,
-// configurar o mostrador (histórico superior e campo de entrada inferior),
-// conectar os eventos de teclado físico e pinpad, e executar a decomposição
-// das expressões com envio de operações ao contrato [calc.Operacoes].
-//
-// # Entradas
-//   - titulo: texto exibido na barra superior da janela gráfica.
-//   - ops: implementação de [calc.Operacoes].
-//
-// # Comportamento
-//
-// Esta chamada é bloqueante, assumindo o laço de eventos da interface gráfica
-// até que a janela seja fechada pelo usuário.
+// IniciarGUI cria a janela no Fyne, conecta os botões e o teclado físico,
+// decompõe a expressão digitada e envia cada conta para o cliente de rede em [calc.Operacoes].
 func IniciarGUI(titulo string, ops calc.Operacoes) {
-	// Criação da instância da janela principal
 	aplicacao := app.New()
 	janela := aplicacao.NewWindow(titulo)
 	janela.Resize(fyne.NewSize(320, 420))
 
-	// Rótulo superior para exibir o histórico da expressão ou mensagens de erro
+	// Texto superior que mostra a expressão anterior ou avisos de erro
 	historicoLabel := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{})
 
-	// Campo de texto principal pra entrada de dados
+	// Campo onde o usuário digita ou vê o resultado
 	displayEntry := widget.NewEntry()
 	displayEntry.SetPlaceHolder("0")
 
@@ -46,13 +32,11 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 		displayEntry.SetText(displayEntry.Text + s)
 	}
 
-	// Reseta todo o estado da interface (botão C)
 	limparTudo := func() {
 		historicoLabel.SetText("")
 		displayEntry.SetText("")
 	}
 
-	// Remove o último caractere digitado (botão DEL / Backspace)
 	apagarUltimo := func() {
 		texto := displayEntry.Text
 		if len(texto) > 0 {
@@ -60,7 +44,7 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 		}
 	}
 
-	// Orquestra a higienização, tokenização e avaliação distribuída da expressão
+	// Faz a limpeza, converte para RPN e resolve operação por operação no servidor
 	executarCalculo := func() {
 		expressao := strings.TrimSpace(displayEntry.Text)
 		if expressao == "" {
@@ -69,7 +53,7 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 
 		exprHigienizada, err := parser.Higienizar(expressao)
 		if err != nil {
-			historicoLabel.SetText("Erro: expressao invalida")
+			historicoLabel.SetText("Erro: expressão inválida")
 			return
 		}
 
@@ -86,15 +70,14 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 		}
 
 		historicoLabel.SetText(expressao + " =")
-		displayEntry.SetText(fmt.Sprintf("%g", resultado))
+		displayEntry.SetText(strconv.FormatFloat(resultado, 'f', -1, 64))
 	}
 
-	// Dispara o cálculo ao pressionar Enter no teclado físico
+	// Calcula ao apertar Enter no teclado
 	displayEntry.OnSubmitted = func(_ string) {
 		executarCalculo()
 	}
 
-	// Grade 5x4 com os botões virtuais da calculadora
 	teclado := container.NewGridWithColumns(4,
 		widget.NewButton("C", limparTudo),
 		widget.NewButton("(", func() { inserirTexto("(") }),
@@ -122,13 +105,11 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 		widget.NewButton("=", executarCalculo),
 	)
 
-	// Painel vertical agrupando histórico e campo de entrada
 	displayContainer := container.NewVBox(
 		historicoLabel,
 		displayEntry,
 	)
 
-	// Disposição de borda com o mostrador no topo e o teclado no centro
 	conteudo := container.NewBorder(
 		container.NewPadded(displayContainer),
 		nil, nil, nil,
@@ -136,8 +117,6 @@ func IniciarGUI(titulo string, ops calc.Operacoes) {
 	)
 
 	janela.SetContent(conteudo)
-	// Ativa o foco no campo de texto
 	janela.Canvas().Focus(displayEntry)
-	// Exibe a janela e inicia o loop de eventos
 	janela.ShowAndRun()
 }

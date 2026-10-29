@@ -5,8 +5,7 @@ rem Script de compilacao multiplataforma para os binarios da calculadora (Window
 rem Estrutura de saida: build\<protocolo>\<sistema>\<binarios>
 
 rem Lista de protocolos suportados
-rem Adicionar novos protocolos aqui conforme forem implementados (exemplo: socket rpc rest rmi)
-set PROTOCOLOS=socket
+set PROTOCOLOS=socket rmi rpc rest
 
 set ROOT_DIR=%~dp0
 cd /d "%ROOT_DIR%"
@@ -35,13 +34,13 @@ for %%P in (%PROTOCOLOS%) do (
         set GOOS=windows
         set GOARCH=amd64
         set CGO_ENABLED=0
-        go build -o "!DIR_WINDOWS!\%%P-server.exe" "!SERVER_DIR!"
+        go build -ldflags="-s -w" -o "!DIR_WINDOWS!\%%P-server.exe" "!SERVER_DIR!"
 
         echo [Servidor] Compilando para Linux (amd64)...
         set GOOS=linux
         set GOARCH=amd64
         set CGO_ENABLED=0
-        go build -o "!DIR_LINUX!\%%P-server" "!SERVER_DIR!"
+        go build -ldflags="-s -w" -o "!DIR_LINUX!\%%P-server" "!SERVER_DIR!"
     )
 
     rem 2. Compilacao dos Clientes (Fyne / GUI)
@@ -49,7 +48,7 @@ for %%P in (%PROTOCOLOS%) do (
         echo [Cliente] Compilando nativamente para Windows...
         set GOOS=windows
         set GOARCH=amd64
-        go build -o "!DIR_WINDOWS!\%%P-client.exe" "!CLIENT_DIR!"
+        go build -ldflags="-s -w -H=windowsgui" -o "!DIR_WINDOWS!\%%P-client.exe" "!CLIENT_DIR!"
 
         rem Verificacao do motor de containers e fyne-cross para gerar Linux
         where fyne-cross >nul 2>nul

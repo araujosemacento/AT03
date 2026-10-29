@@ -5,19 +5,8 @@ import (
 	"strconv"
 )
 
-// AvaliarRPN processa uma sequência de tokens em Notação Polonesa Reversa.
-//
-// O algoritmo consome a lista pós-fixa utilizando uma pilha
-// e delega cada operação pra interface [Operacoes].
-//
-// # Entradas
-//   - tokens: fatia de strings contendo números e operadores ordenados em notação pós-fixa.
-//   - ops: implementação do contrato [Operacoes] (instância do servidor ou cliente de rede).
-//
-// # Retorno
-//   - float64: resultado numérico final obtido após consumir todos os tokens da expressão.
-//   - error: retorna erro em caso de divisão por zero, operadores desconhecidos ou
-//     expressão malformada (operandos insuficientes ou excedentes na pilha).
+// AvaliarRPN lê a fila de tokens em Notação Polonesa Reversa (RPN),
+// empilha os números e chama as operações na interface [Operacoes] conforme os sinais aparecem.
 func AvaliarRPN(tokens []string, ops Operacoes) (float64, error) {
 	if len(tokens) == 0 {
 		return 0, fmt.Errorf("expressão vazia")
@@ -25,19 +14,17 @@ func AvaliarRPN(tokens []string, ops Operacoes) (float64, error) {
 
 	var pilha []float64
 
-	// Verifica cada token da lista recebida
 	for _, token := range tokens {
-		// Se for um número, nenhuma excessão é acusada pela conversão de string
-		// para número fluteuante, logo sendo adicionado à pilha.
+		// Se o token for um número, coloca na pilha e passa para o próximo
 		if num, erro := strconv.ParseFloat(token, 64); erro == nil {
 			pilha = append(pilha, num)
 			continue
 		}
 
-		// Se for operador unário de inversão (u-), atua sobre apenas um operando do topo
+		// O sinal 'u-' inverte o sinal do último número da pilha fazendo (0 - valor)
 		if token == "u-" {
 			if len(pilha) < 1 {
-				return 0, fmt.Errorf("expressão malformada: operando insuficiente para operador unário")
+				return 0, fmt.Errorf("expressão malformada: falta número para o sinal negativo")
 			}
 			topo := len(pilha) - 1
 			resultado, err := ops.Subtrair(0, pilha[topo])
@@ -48,13 +35,12 @@ func AvaliarRPN(tokens []string, ops Operacoes) (float64, error) {
 			continue
 		}
 
-		// Se não houverem numerais o suficiente aguardando uma operação,
-		// significa que a expressão foi enviada de forma incompleta.
+		// Operadores normais precisam de pelo menos dois números na pilha
 		if len(pilha) < 2 {
-			return 0, fmt.Errorf("Expressão malformada: operandos insuficientes para o operador %s", token)
+			return 0, fmt.Errorf("expressão malformada: faltam números para o operador %s", token)
 		}
 
-		// Retira os valores da pilha pra armazená-los em variáveis auxiliares.
+		// Retira os dois últimos números da pilha para fazer a conta
 		valorDois := pilha[len(pilha)-1]
 		valorUm := pilha[len(pilha)-2]
 		pilha = pilha[:len(pilha)-2]
@@ -79,12 +65,13 @@ func AvaliarRPN(tokens []string, ops Operacoes) (float64, error) {
 			return 0, err
 		}
 
+		// Guarda o resultado de volta na pilha para as próximas operações
 		pilha = append(pilha, resultado)
 	}
 
-	// Após o laço, o único valor restante na pilha deve ser o resultado da expressão.
+	// Ao final, deve sobrar apenas o resultado final na pilha
 	if len(pilha) != 1 {
-		return 0, fmt.Errorf("expressão malformada: quantidade incorreta de operandos")
+		return 0, fmt.Errorf("expressão malformada: sobraram números sem operador")
 	}
 
 	return pilha[0], nil

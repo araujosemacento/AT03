@@ -5,15 +5,14 @@ set -e
 # Estrutura de saída: build/<protocolo>/<sistema>/<binários>
 
 # Lista de protocolos suportados
-# Adicionar novos protocolos aqui conforme forem implementados (exemplo: "socket" "rpc" "rest" "rmi")
-PROTOCOLOS=("socket")
+PROTOCOLOS=("socket" "rmi" "rpc" "rest")
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 echo "Iniciando compilação dos binários..."
 
-# Assegura que o diretório bin do Go esteja presente no PATH
+# Garante que a pasta bin do Go esteja no PATH
 if command -v go &> /dev/null; then
     GOPATH_BIN="$(go env GOPATH)/bin"
     if [[ ":$PATH:" != *":$GOPATH_BIN:"* ]] && [ -d "$GOPATH_BIN" ]; then
@@ -21,16 +20,16 @@ if command -v go &> /dev/null; then
     fi
 fi
 
-# Detecta o motor de containers (prioriza Podman, com fallback para Docker)
+# Verifica se há Podman ou Docker instalado para compilar a interface de Windows a partir do Linux
 TEM_CONTAINER=false
 if command -v podman &> /dev/null; then
     export FYNE_CROSS_ENGINE="podman"
     TEM_CONTAINER=true
-    echo "Motor de containers detectado: Podman"
+    echo "Motor de containers encontrado: Podman"
 elif command -v docker &> /dev/null && docker info &> /dev/null; then
     export FYNE_CROSS_ENGINE="docker"
     TEM_CONTAINER=true
-    echo "Motor de containers detectado: Docker"
+    echo "Motor de containers encontrado: Docker"
 fi
 
 for PROTO in "${PROTOCOLOS[@]}"; do
@@ -47,22 +46,20 @@ for PROTO in "${PROTOCOLOS[@]}"; do
     echo "Compilando protocolo: ${PROTO}"
     echo "=========================================="
 
-    # 1. Compilação dos Servidores (Go puro: compilação cruzada direta sem Cgo)
+    # 1. Compilação dos Servidores (Go puro, sem precisar de Cgo)
     if [ -d "$SERVER_DIR" ]; then
         echo "[Servidor] Compilando para Linux (amd64)..."
-        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "${DIR_LINUX}/${PROTO}-server" "$SERVER_DIR"
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "${DIR_LINUX}/${PROTO}-server" "$SERVER_DIR"
 
         echo "[Servidor] Compilando para Windows (amd64)..."
-        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o "${DIR_WINDOWS}/${PROTO}-server.exe" "$SERVER_DIR"
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "${DIR_WINDOWS}/${PROTO}-server.exe" "$SERVER_DIR"
     fi
 
-    # 2. Compilação dos Clientes (Fyne / GUI)
+    # 2. Compilação dos Clientes (interface gráfica Fyne)
     if [ -d "$CLIENT_DIR" ]; then
-        # Compilação nativa para Linux
         echo "[Cliente] Compilando nativamente para Linux..."
-        go build -o "${DIR_LINUX}/${PROTO}-client" "$CLIENT_DIR"
+        go build -ldflags="-s -w" -o "${DIR_LINUX}/${PROTO}-client" "$CLIENT_DIR"
 
-        # Compilação cruzada com fyne-cross para Windows
         if [ "$TEM_CONTAINER" = true ] && command -v fyne-cross &> /dev/null; then
             echo "[Cliente] Compilando para Windows com fyne-cross (${FYNE_CROSS_ENGINE})..."
             fyne-cross windows --engine "$FYNE_CROSS_ENGINE" -app-id "$APP_ID" -output "${PROTO}-client.exe" "$CLIENT_DIR"
@@ -70,13 +67,13 @@ for PROTO in "${PROTOCOLOS[@]}"; do
                 cp "fyne-cross/bin/windows-amd64/${PROTO}-client.exe" "${DIR_WINDOWS}/"
             fi
         else
-            echo "[Aviso] Podman/Docker ou fyne-cross indisponível para compilação cruzada de GUI."
-            echo "[Aviso] O cliente nativo Linux e os servidores de todos os SOs foram compilados com sucesso."
+            echo "[Aviso] Podman/Docker ou fyne-cross não encontrado para gerar o cliente Windows."
+            echo "[Aviso] O cliente Linux e os servidores de ambos os sistemas foram compilados normalmente."
         fi
     fi
 done
 
 echo "=========================================="
-echo "Processo de compilação concluído."
-echo "Binários disponíveis na pasta: ${ROOT_DIR}/build/"
+echo "Compilação concluída."
+echo "Binários salvos em: ${ROOT_DIR}/build/"
 echo "=========================================="
