@@ -1,0 +1,252 @@
+name: Release e Compilacao de Binarios
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  semver:
+    name: Calcular Proxima Versao SemVer
+    runs-on: ubuntu-latest
+    outputs:
+      nova_tag: ${{ steps.calc.outputs.nova_tag }}
+      deve_publicar: ${{ steps.calc.outputs.deve_publicar }}
+    steps:
+      - name: Clonar repositorio com historico completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Analisar historico de commits e calcular SemVer
+        id: calc
+        run: |
+          git fetch --tags --force
+
+          # Obtem a ultima tag SemVer (formato vX.Y.Z)
+          ULTIMA_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)
+
+          if [ -z "$ULTIMA_TAG" ]; then
+            MAJOR=0
+            MINOR=1
+            PATCH=0
+            NOVA_TAG="v0.1.0"
+            echo "Nenhuma tag anterior encontrada. Versao inicial definida: ${NOVA_TAG}"
+            echo "nova_tag=${NOVA_TAG}" >> "$GITHUB_OUTPUT"
+            echo "deve_publicar=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Ultima tag encontrada: ${ULTIMA_TAG}"
+
+          # Verifica se existem novos commits desde a ultima tag
+          QTD_COMMITS=$(git rev-list "${ULTIMA_TAG}..HEAD" --count)
+          if [ "$QTD_COMMITS" -eq 0 ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Nenhum commit novo desde ${ULTIMA_TAG}."
+            echo "deve_publicar=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSAO="${ULTIMA_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSAO"
+
+          INCREMENTO="patch"
+
+          # Analisa as mensagens de commit entre a ultima tag e o HEAD
+          while IFS= read -r ASSUNTO; do
+            if [[ "$ASSUNTO" =~ ^[a-zA-Z]+(\(.+\))?!: ]] || [[ "$ASSUNTO" =~ BREAKING\ CHANGE ]]; then
+              INCREMENTO="major"
+              break
+            elif [[ "$ASSUNTO" =~ ^feat(\(.+\))?: ]]; then
+              if [ "$INCREMENTO" != "major" ]; then
+                INCREMENTO="minor"
+              fi
+            fi
+          done < <(git log "${ULTIMA_TAG}..HEAD" --format="%s")
+
+          # Verifica tambem o corpo dos commits para BREAKING CHANGE
+          if [ "$INCREMENTO" != "major" ]; then
+            if git log "${ULTIMA_TAG}..HEAD" --format="%b" | grep -q "BREAKING CHANGE"; then
+              INCREMENTO="major"
+            fi
+          fi
+
+          case "$INCREMENTO" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NOVA_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "Incremento detectado (${INCREMENTO}): ${ULTIMA_TAG} -> ${NOVA_TAG}"
+          echo "nova_tag=${NOVA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "deve_publicar=true" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    name: Build Binarios Linux (amd64)
+    needs: semver
+    if: needs.semver.outputs.deve_publicar == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar dependencias graficas do Fyne no Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Configurar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Compilar servidores e clientes para Linux (amd64)
+        run: |
+          mkdir -p dist/linux
+          for SERVER_PATH in ./cmd/*-server; do
+            if [ -d "$SERVER_PATH" ]; then
+              NOME=$(basename "$SERVER_PATH")
+              PROTO="${NOME%-server}"
+              mkdir -p "dist/linux/${PROTO}"
+              echo "Compilando ${NOME} para Linux (amd64)..."
+              GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "dist/linux/${PROTO}/${NOME}" "$SERVER_PATH"
+            fi
+          done
+
+          for CLIENT_PATH in ./cmd/*-client; do
+            if [ -d "$CLIENT_PATH" ]; then
+              NOME=$(basename "$CLIENT_PATH")
+              PROTO="${NOME%-client}"
+              mkdir -p "dist/linux/${PROTO}"
+              echo "Compilando ${NOME} para Linux (amd64)..."
+              GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w" -o "dist/linux/${PROTO}/${NOME}" "$CLIENT_PATH"
+            fi
+          done
+
+      - name: Empacotar binarios Linux (.tar.gz)
+        run: |
+          mkdir -p pacotes
+          TAG="${{ needs.semver.outputs.nova_tag }}"
+          cd dist/linux
+          for PROTO_DIR in */; do
+            PROTO="${PROTO_DIR%/}"
+            ARQUIVO="calculadora-${PROTO}-linux-amd64-${TAG}.tar.gz"
+            tar -czvf "../../pacotes/${ARQUIVO}" -C "${PROTO}" .
+          done
+
+      - name: Enviar artefatos Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacotes-linux-amd64
+          path: pacotes/*.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Binarios Windows (amd64)
+    needs: semver
+    if: needs.semver.outputs.deve_publicar == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Compilar servidores e clientes para Windows (amd64)
+        shell: bash
+        run: |
+          mkdir -p dist/windows
+          for SERVER_PATH in ./cmd/*-server; do
+            if [ -d "$SERVER_PATH" ]; then
+              NOME=$(basename "$SERVER_PATH")
+              PROTO="${NOME%-server}"
+              mkdir -p "dist/windows/${PROTO}"
+              echo "Compilando ${NOME}.exe para Windows (amd64)..."
+              GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "dist/windows/${PROTO}/${NOME}.exe" "$SERVER_PATH"
+            fi
+          done
+
+          for CLIENT_PATH in ./cmd/*-client; do
+            if [ -d "$CLIENT_PATH" ]; then
+              NOME=$(basename "$CLIENT_PATH")
+              PROTO="${NOME%-client}"
+              mkdir -p "dist/windows/${PROTO}"
+              echo "Compilando ${NOME}.exe para Windows (amd64)..."
+              GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui" -o "dist/windows/${PROTO}/${NOME}.exe" "$CLIENT_PATH"
+            fi
+          done
+
+      - name: Empacotar binarios Windows (.zip)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path pacotes | Out-Null
+          $Tag = "${{ needs.semver.outputs.nova_tag }}"
+          Get-ChildItem -Path "dist/windows" -Directory | ForEach-Object {
+            $Proto = $_.Name
+            $Arquivo = "calculadora-$Proto-windows-amd64-$Tag.zip"
+            Compress-Archive -Path "$($_.FullName)\*" -DestinationPath "pacotes\$Arquivo" -Force
+          }
+
+      - name: Enviar artefatos Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacotes-windows-amd64
+          path: pacotes/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publicar Tag e Release no GitHub
+    needs: [semver, build-linux, build-windows]
+    if: needs.semver.outputs.deve_publicar == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Baixar pacotes compilados
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Gerar checksums SHA256
+        run: |
+          cd release-assets
+          sha256sum * > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Criar Tag e Publicar Release no GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOVA_TAG: ${{ needs.semver.outputs.nova_tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$NOVA_TAG" -m "Release $NOVA_TAG"
+          git push origin "$NOVA_TAG"
+
+          gh release create "$NOVA_TAG" ./release-assets/* \
+            --title "Release $NOVA_TAG" \
+            --generate-notes
